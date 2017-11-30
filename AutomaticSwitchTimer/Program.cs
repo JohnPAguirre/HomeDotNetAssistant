@@ -13,7 +13,8 @@ namespace AutomaticSwitchTimer
         {
             var log = new LoggerConfiguration()
                 .WriteTo.File("log.txt", rollingInterval: RollingInterval.Day)
-                .WriteTo.File(new JsonFormatter(),"log.json", rollingInterval: RollingInterval.Day)
+                .WriteTo.File(new JsonFormatter(), "log.json", rollingInterval: RollingInterval.Day)
+                .WriteTo.Console()
                 .Enrich.FromLogContext()
                 .CreateLogger();
             Log.Logger = log.ForContext<HomeAssistantConnection>()

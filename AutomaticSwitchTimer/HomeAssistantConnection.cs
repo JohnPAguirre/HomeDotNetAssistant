@@ -37,6 +37,9 @@ namespace AutomaticSwitchTimer
             socket = new ClientWebSocket();
             currentlyAuthenticating = false;
             currentMessageQueue = new BufferBlock<JObject>();
+            currentMessageQueue.LinkTo(new ActionBlock<JObject>((toProcess) => {
+                Log.Information("from action block: {0}", toProcess.ToString(Formatting.Indented));
+            }));
         }
 
         private async Task Setup()
@@ -66,52 +69,83 @@ namespace AutomaticSwitchTimer
                 event_type = "state_changed"
             });
             currentID = currentID + 1;
+            await Send(new
+            {
+                id = currentID,
+                type = "get_states",
+            });
+            currentID = currentID + 1;
+            await Send(new
+            {
+                id = currentID,
+                type = "get_config",
+            });
+            currentID = currentID + 1;
+            await Send(new
+            {
+                id = currentID,
+                type = "get_panels",
+            });
+            currentID = currentID + 1;
+            await Send(new
+            {
+                id = currentID,
+                type = "get_services",
+            });
+            currentID = currentID + 1;
+            var throwAway = Task.Factory.StartNew(async () => {
+                while (socket.State == WebSocketState.Open)
+                {
+                    var b = await ReceiveFromWebSocketToJson();
+                    await currentMessageQueue.SendAsync(b);
+                }
+            });
             //while (socket.State == WebSocketState.Open)
             //{
             //    var b = await Receive(false);
             //    Console.Write(b.ToString());
             //}
-            var eh = new Thread(delegate () {
-                while (socket.State == WebSocketState.Open)
-                {
-                    var b = ReceiveFromWebSocketToJson().Result;
-                    currentMessageQueue.SendAsync(b);
-                    object a = null;
-                    //TODO: Deseliazie into a good object if we can
-                    if (WhatEventPassedIn.TypeOfObject(b) == EventType.SwitchChangedEvent)
-                        Console.WriteLine("STOP");
-                    Log.Information("Got the following message: {@b}", b.ToString(Formatting.None));
-                    Console.Write(b.ToString());
-                }
-            });
-            eh.Start();
+            //var eh = new Thread(delegate () {
+            //    while (socket.State == WebSocketState.Open)
+            //    {
+            //        var b = await ReceiveFromWebSocketToJson();
+            //        currentMessageQueue.SendAsync(b);
+            //        object a = null;
+            //        //TODO: Deseliazie into a good object if we can
+            //        if (WhatEventPassedIn.TypeOfObject(b) == EventType.SwitchChangedEvent)
+            //            Console.WriteLine("STOP");
+            //        //Log.Information("Got the following message: {@b}", b.ToString(Formatting.None));
+            //        //Console.Write(b.ToString());
+            //    }
+            //});
+            //eh.Start();
             while (socket.State == WebSocketState.Open)
             {
-                await Send(new ServiceCallDTO()
-                {
-                    id = currentID,
-                    domain = "homeassistant",
-                    type = "call_service",
-                    service = "turn_on",
-                    service_data = new ServiceData()
-                    {
-                        entity_id = "switch.__switch_2_0"
-                    }
-                });
-                currentID = currentID + 1;
+                //await Send(new ServiceCallDTO()
+                //{
+                //    id = currentID,
+                //    domain = "homeassistant",
+                //    type = "call_service",
+                //    service = "turn_on",
+                //    service_data = new ServiceData()
+                //    {
+                //        entity_id = "switch.__switch_2_0"
+                //    }
+                //});
+                //currentID = currentID + 1;
                 Thread.Sleep(10000);
-                await Send(new ServiceCallDTO()
-                {
-                     id = currentID,
-                    domain = "homeassistant",
-                    type = "call_service",
-                    service = "turn_off",
-                    service_data = new ServiceData()
-                    {
-                        entity_id = "switch.__switch_2_0"
-                    }
-                });
-                currentID = currentID + 1;
+                //await Send(new ServiceCallDTO()
+                //{
+                //     id = currentID,
+                //    domain = "homeassistant",
+                //    type = "call_service",
+                //    service = "turn_off",
+                //    service_data = new ServiceData()
+                //    {
+                //        entity_id = "switch.__switch_2_0"
+                //    }
+                //});
+                //currentID = currentID + 1;
                 Thread.Sleep(10000);
             }
         }
@@ -124,12 +158,15 @@ namespace AutomaticSwitchTimer
         public async Task Send(object toSend)
         {
             var serializedToSend = JsonConvert.SerializeObject(toSend);
+            var serializer = new JsonSerializer();
+            await currentMessageQueue.SendAsync(JObject.FromObject(toSend));
             var buffer = Encoding.Default.GetBytes(serializedToSend);
             await socket.SendAsync(buffer, WebSocketMessageType.Text, true, cancellationToken);
         }
 
         private async Task<JObject> ReceiveFromWebSocketToJson()
         {
+            Log.Information("Starting to read from websocket");
             if (!currentlyAuthenticating)
                 await Setup();
             var buffer = new byte[1024];
@@ -137,6 +174,7 @@ namespace AutomaticSwitchTimer
             if (gotSomething.MessageType == WebSocketMessageType.Close)
                 throw new Exception("Was Closed");
             List<byte> entireBuffer = new List<byte>(buffer.Take(gotSomething.Count));
+            Log.Information("Got some bytes from the web socket!");
             while (gotSomething.EndOfMessage != true)
             {
                 gotSomething = await socket.ReceiveAsync(buffer, cancellationToken);
